@@ -1,0 +1,7 @@
+node_modules
+.next
+out
+.env*.local
+drizzle/
+*.log
+.DS_Store
