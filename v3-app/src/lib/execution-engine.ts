@@ -4,7 +4,7 @@ import * as schema from "@/lib/db-schema";
 import { compensationRecords, inventoryItems, inventoryMovements, auditLogs } from "@/lib/db-schema";
 import { eq, and } from "drizzle-orm";
 import type { ExecutionAction, MovementType, CompensationDirection } from "@/types";
-import { actionNeedsOutbound, actionNeedsReturnIn, actionNeedsPayCustomer } from "@/lib/state-machine";
+import { actionNeedsOutbound, actionNeedsReturnIn, actionNeedsPayCustomer, qcActionNeedsRecoverSupplier, qcActionNeedsUnlock, qcActionNeedsReturnSupplier, qcActionNeedsScrap } from "@/lib/state-machine";
 
 /**
  * 执行联动引擎：审批通过后，在【同一数据库事务】内生成赔付记录与库存流水，并更新库存。
@@ -88,6 +88,37 @@ export async function executeActions(input: ExecuteInput): Promise<ExecuteResult
         // 退货入库
         if (actionNeedsReturnIn(input.executionAction)) {
           await applyReturnIn(tx, input, qty, movementIds);
+        }
+
+        // 品控执行动作
+        if (qcActionNeedsUnlock(input.executionAction)) {
+          await applyUnlock(tx, input, qty, movementIds);
+        }
+        if (qcActionNeedsReturnSupplier(input.executionAction)) {
+          await applyReturnSupplier(tx, input, qty, movementIds);
+        }
+        if (qcActionNeedsScrap(input.executionAction)) {
+          await applyScrap(tx, input, qty, movementIds);
+        }
+
+        // 品控追偿赔付记录
+        if (qcActionNeedsRecoverSupplier(input.executionAction)) {
+          const amount = Number(input.compensationAmount ?? 0);
+          if (amount > 0) {
+            const [comp] = await tx
+              .insert(compensationRecords)
+              .values({
+                ticketId: input.ticketId,
+                approvalRecordId: input.approvalRecordId,
+                direction: "recover_supplier" as CompensationDirection,
+                amount: String(amount),
+                status: "recorded",
+                counterpartyName: input.counterpartyName ?? "供应商",
+                reason: input.reason ?? null,
+              })
+              .returning({ id: compensationRecords.id });
+            compensationId = comp?.id;
+          }
         }
 
         // 审计日志
@@ -200,5 +231,102 @@ async function applyReturnIn(tx: TxDb, input: ExecuteInput, qty: number, movemen
 }
 
 export function requiresCompensationAmount(action: ExecutionAction): boolean {
-  return action === "pay_customer" || action === "pay_customer_and_reship";
+  return action === "pay_customer" || action === "pay_customer_and_reship"
+    || action === "return_supplier_recover" || action === "repurchase_recover" || action === "downgrade_recover";
+}
+
+/** 品控放行/快速放行：解锁批次库存 */
+async function applyUnlock(tx: TxDb, input: ExecuteInput, qty: number, movementIds: string[]) {
+  const before = await tx
+    .select()
+    .from(inventoryItems)
+    .where(and(eq(inventoryItems.skuCode, input.skuCode), eq(inventoryItems.batchNo, input.batchNo)))
+    .limit(1);
+  const beforeRow = before[0] ?? null;
+  const beforeAvail = Number(beforeRow?.availableQuantity ?? 0);
+  const beforeLocked = Number(beforeRow?.lockedQuantity ?? 0);
+  const afterLocked = Math.max(0, beforeLocked - qty);
+
+  if (beforeRow) {
+    await tx.update(inventoryItems).set({ lockedQuantity: String(afterLocked), status: "normal", updatedAt: new Date() }).where(eq(inventoryItems.id, beforeRow.id));
+  }
+
+  const [mv] = await tx
+    .insert(inventoryMovements)
+    .values({
+      ticketId: input.ticketId,
+      approvalRecordId: input.approvalRecordId,
+      skuCode: input.skuCode,
+      batchNo: input.batchNo,
+      movementType: "unlock" as MovementType,
+      quantity: String(qty),
+      beforeSnapshot: { available: beforeAvail, locked: beforeLocked },
+      afterSnapshot: { available: beforeAvail, locked: afterLocked },
+    })
+    .returning({ id: inventoryMovements.id });
+  if (mv?.id) movementIds.push(mv.id);
+}
+
+/** 品控退供应商：库存出库+状态改为 returned */
+async function applyReturnSupplier(tx: TxDb, input: ExecuteInput, qty: number, movementIds: string[]) {
+  const before = await tx
+    .select()
+    .from(inventoryItems)
+    .where(and(eq(inventoryItems.skuCode, input.skuCode), eq(inventoryItems.batchNo, input.batchNo)))
+    .limit(1);
+  const beforeRow = before[0] ?? null;
+  const beforeAvail = Number(beforeRow?.availableQuantity ?? 0);
+  const beforeLocked = Number(beforeRow?.lockedQuantity ?? 0);
+  const afterAvail = Math.max(0, beforeAvail - qty);
+  const afterLocked = Math.max(0, beforeLocked - qty);
+
+  if (beforeRow) {
+    await tx.update(inventoryItems).set({ availableQuantity: String(afterAvail), lockedQuantity: String(afterLocked), status: "returned", updatedAt: new Date() }).where(eq(inventoryItems.id, beforeRow.id));
+  }
+
+  const [mv] = await tx
+    .insert(inventoryMovements)
+    .values({
+      ticketId: input.ticketId,
+      approvalRecordId: input.approvalRecordId,
+      skuCode: input.skuCode,
+      batchNo: input.batchNo,
+      movementType: "outbound" as MovementType,
+      quantity: String(qty),
+      beforeSnapshot: { available: beforeAvail, locked: beforeLocked },
+      afterSnapshot: { available: afterAvail, locked: afterLocked },
+    })
+    .returning({ id: inventoryMovements.id });
+  if (mv?.id) movementIds.push(mv.id);
+}
+
+/** 品控重采购：批次作废，库存标记为 scrapped */
+async function applyScrap(tx: TxDb, input: ExecuteInput, qty: number, movementIds: string[]) {
+  const before = await tx
+    .select()
+    .from(inventoryItems)
+    .where(and(eq(inventoryItems.skuCode, input.skuCode), eq(inventoryItems.batchNo, input.batchNo)))
+    .limit(1);
+  const beforeRow = before[0] ?? null;
+  const beforeAvail = Number(beforeRow?.availableQuantity ?? 0);
+  const beforeLocked = Number(beforeRow?.lockedQuantity ?? 0);
+
+  if (beforeRow) {
+    await tx.update(inventoryItems).set({ availableQuantity: "0", lockedQuantity: "0", status: "scrapped", updatedAt: new Date() }).where(eq(inventoryItems.id, beforeRow.id));
+  }
+
+  const [mv] = await tx
+    .insert(inventoryMovements)
+    .values({
+      ticketId: input.ticketId,
+      approvalRecordId: input.approvalRecordId,
+      skuCode: input.skuCode,
+      batchNo: input.batchNo,
+      movementType: "scrap" as MovementType,
+      quantity: String(qty),
+      beforeSnapshot: { available: beforeAvail, locked: beforeLocked },
+      afterSnapshot: { available: 0, locked: 0 },
+    })
+    .returning({ id: inventoryMovements.id });
+  if (mv?.id) movementIds.push(mv.id);
 }

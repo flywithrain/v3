@@ -229,6 +229,51 @@ export const auditLogs = pgTable(
   (t) => [index("audit_logs_target_idx").on(t.targetType, t.targetId), index("audit_logs_actor_id_idx").on(t.actorId)]
 );
 
-// ====== 后续轮次将补充（本轮 schema 占位，不参与建表） ======
-// §8.7 scan_records：扫描记录（扫描品控闭环，后续轮次）
-// §8.8 qc_rules：品控规则表（扫描品控闭环，后续轮次）
+// ====== §8.7 scan_records：扫描记录表（品控异常触发源） ======
+export const scanRecords = pgTable(
+  "scan_records",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    scanNo: varchar("scan_no", { length: 50 }).notNull(),
+    waybillSnapshotId: uuid("waybill_snapshot_id").references(() => waybillSnapshots.id),
+    v2ShipmentId: varchar("v2_shipment_id", { length: 100 }).notNull(),
+    skuCode: varchar("sku_code", { length: 100 }).notNull(),
+    skuName: varchar("sku_name", { length: 500 }),
+    skuSpec: varchar("sku_spec", { length: 500 }),
+    expectedQuantity: numeric("expected_quantity").default("0"),
+    actualQuantity: numeric("actual_quantity").default("0"),
+    batchNo: varchar("batch_no", { length: 100 }).notNull(),
+    operatorId: uuid("operator_id").references(() => users.id),
+    deviceId: varchar("device_id", { length: 100 }),
+    qcResult: varchar("qc_result", { length: 20 }).notNull(), // passed / abnormal
+    qcStatus: varchar("qc_status", { length: 30 }).notNull(), // scan_recorded/qc_passed/qc_hold/escalated/released/returned_supplier/repurchase_pending/downgraded/closed
+    matchedRuleId: uuid("matched_rule_id"), // FK qc_rules（不设硬引用，避免循环依赖）
+    decisionBasis: jsonb("decision_basis"),
+    ticketId: uuid("ticket_id"), // FK exception_tickets（可空，异常时非空）
+    description: text("description"),
+    holdDueAt: timestamp("hold_due_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("scan_records_scan_no_uq").on(t.scanNo),
+    index("scan_records_batch_sku_status_idx").on(t.batchNo, t.skuCode, t.qcStatus),
+    index("scan_records_ticket_id_idx").on(t.ticketId),
+    index("scan_records_shipment_id_idx").on(t.v2ShipmentId),
+  ]
+);
+
+// ====== §8.8 qc_rules：品控规则表（可配置触发条件） ======
+export const qcRules = pgTable("qc_rules", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  subtype: varchar("subtype", { length: 50 }).notNull(), // quantity_mismatch / damage / spec_mismatch / label_mismatch / batch_risk
+  conditionType: varchar("condition_type", { length: 50 }).notNull(), // quantity_diff / damage_level / spec_mismatch / label_mismatch / batch_risk
+  conditionConfig: jsonb("condition_config").notNull(),
+  severity: varchar("severity", { length: 10 }).notNull(), // low/medium/high
+  autoCreateTicket: boolean("auto_create_ticket").default(true),
+  defaultApprovalLevel: integer("default_approval_level").default(2),
+  enabled: boolean("enabled").default(true),
+  priority: integer("priority").default(100),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

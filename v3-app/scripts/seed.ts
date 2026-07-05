@@ -1,18 +1,29 @@
 /**
- * V3 最小种子脚本：7 个用户、5 条审批规则、10 条库存批次。
+ * V3 最小种子脚本：7 个用户、5 条审批规则、5 条品控规则、10 条库存批次。
  * 用途：npm run db:seed
- * 注意：演示工单（200 条）由 seed-200-tickets.ts 单独脚本生成，后续轮次提供。
+ * 注意：演示工单（200 条）由 seed-200-tickets.ts 单独脚本生成。
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { db } from "../src/lib/db";
-import { users, approvalRules, inventoryItems } from "../src/lib/db-schema";
+import { users, approvalRules, inventoryItems, qcRules, scanRecords, exceptionTickets, compensationRecords, inventoryMovements, approvalRecords, auditLogs, integrationLogs, waybillSnapshots, waybillSkuSnapshots } from "../src/lib/db-schema";
 
 async function seed() {
   console.log("→ 清空旧数据…");
-  await db.delete(inventoryItems);
+  // 按依赖顺序删除
+  await db.delete(auditLogs);
+  await db.delete(inventoryMovements);
+  await db.delete(compensationRecords);
+  await db.delete(approvalRecords);
+  await db.delete(scanRecords);
+  await db.delete(exceptionTickets);
+  await db.delete(qcRules);
   await db.delete(approvalRules);
+  await db.delete(inventoryItems);
+  await db.delete(waybillSkuSnapshots);
+  await db.delete(waybillSnapshots);
+  await db.delete(integrationLogs);
   await db.delete(users);
   console.log("→ 重新写入种子…");
 
@@ -72,6 +83,57 @@ async function seed() {
   ];
   const insertedRules = await db.insert(approvalRules).values(ruleRows).returning({ id: approvalRules.id, name: approvalRules.name });
   console.log(`  审批规则 ${insertedRules.length} 条`);
+
+  // ====== 5 条品控规则（§6.5 默认阈值） ======
+  const qcRuleRows = [
+    {
+      name: "数量差异≥5%",
+      subtype: "quantity_mismatch",
+      conditionType: "quantity_diff",
+      conditionConfig: { diffThresholdPct: 5 },
+      severity: "medium",
+      defaultApprovalLevel: 2,
+      priority: 10,
+    },
+    {
+      name: "外观破损≥2级",
+      subtype: "damage",
+      conditionType: "damage_level",
+      conditionConfig: { damageLevelMin: 2, damageLevelHigh: 4 },
+      severity: "medium",
+      defaultApprovalLevel: 2,
+      priority: 20,
+    },
+    {
+      name: "规格不符",
+      subtype: "spec_mismatch",
+      conditionType: "spec_mismatch",
+      conditionConfig: {},
+      severity: "high",
+      defaultApprovalLevel: 2,
+      priority: 15,
+    },
+    {
+      name: "标签SKU不一致",
+      subtype: "label_mismatch",
+      conditionType: "label_mismatch",
+      conditionConfig: {},
+      severity: "high",
+      defaultApprovalLevel: 2,
+      priority: 12,
+    },
+    {
+      name: "批次风险召回",
+      subtype: "batch_risk",
+      conditionType: "batch_risk",
+      conditionConfig: {},
+      severity: "high",
+      defaultApprovalLevel: 2,
+      priority: 5,
+    },
+  ];
+  const insertedQcRules = await db.insert(qcRules).values(qcRuleRows).returning({ id: qcRules.id, name: qcRules.name });
+  console.log(`  品控规则 ${insertedQcRules.length} 条`);
 
   // ====== 10 条库存批次 ======
   const batchRows = [

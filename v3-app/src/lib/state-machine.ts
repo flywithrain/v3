@@ -76,6 +76,41 @@ export function actionNeedsPayCustomer(action: ExecutionAction): boolean {
   return action === "pay_customer" || action === "pay_customer_and_reship";
 }
 
+// 品控执行动作的赔付方向
+export function qcActionNeedsRecoverSupplier(action: ExecutionAction): boolean {
+  return action === "return_supplier_recover" || action === "repurchase_recover" || action === "downgrade_recover";
+}
+
+export function qcActionNeedsUnlock(action: ExecutionAction): boolean {
+  return action === "release_goods" || action === "quick_release";
+}
+
+export function qcActionNeedsReturnSupplier(action: ExecutionAction): boolean {
+  return action === "return_supplier_recover";
+}
+
+export function qcActionNeedsScrap(action: ExecutionAction): boolean {
+  return action === "repurchase_recover";
+}
+
+// 扫描批次状态合法流转（§7.2）
+const SCAN_BATCH_TRANSITIONS: Record<string, string[]> = {
+  scan_recorded: ["qc_passed", "qc_hold"],
+  qc_passed: ["closed"],
+  qc_hold: ["escalated", "released", "returned_supplier", "repurchase_pending", "downgraded", "closed"],
+  escalated: ["released", "returned_supplier", "repurchase_pending", "downgraded", "closed"],
+  released: ["closed"],
+  returned_supplier: ["closed"],
+  repurchase_pending: ["closed"],
+  downgraded: ["closed"],
+  closed: [],
+};
+
+export function canTransitionBatch(from: string, to: string): boolean {
+  const allowed = SCAN_BATCH_TRANSITIONS[from] ?? [];
+  return allowed.includes(to);
+}
+
 // 占位：审批动作 → 状态记录用语
 export function actionLabel(action: ApprovalAction): string {
   const map: Record<ApprovalAction, string> = {

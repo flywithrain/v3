@@ -16,6 +16,24 @@ export type Severity = "low" | "medium" | "high";
 // 物流异常子类型
 export type LogisticsSubtype = "lost" | "damaged" | "rejected" | "timeout_unsigned" | "address_error";
 
+// 品控异常子类型（§3.2）
+export type QcSubtype = "quantity_mismatch" | "damage" | "spec_mismatch" | "label_mismatch" | "batch_risk";
+
+// 品控条件类型
+export type QcConditionType = "quantity_diff" | "damage_level" | "spec_mismatch" | "label_mismatch" | "batch_risk";
+
+// 扫描批次状态（§7.2）
+export type ScanBatchStatus =
+  | "scan_recorded"
+  | "qc_passed"
+  | "qc_hold"
+  | "escalated"
+  | "released"
+  | "returned_supplier"
+  | "repurchase_pending"
+  | "downgraded"
+  | "closed";
+
 // 工单状态机（§7.1）
 export type TicketStatus =
   | "draft"
@@ -68,6 +86,7 @@ export type ApiErrorCode =
   | "DUPLICATE_OPEN_TICKET"
   | "V2_UNAVAILABLE"
   | "WAYBILL_NOT_FOUND"
+  | "SKU_NOT_BELONG"
   | "IDEMPOTENCY_CONFLICT"
   | "RESUBMIT_LIMIT_REACHED"
   | "INVALID_STATE_TRANSITION"
