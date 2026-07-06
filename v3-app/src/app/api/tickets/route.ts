@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
   const approverMap = new Map<string, { name: string; enabled: boolean }>();
   if (approverIds.length > 0) {
     const approvers = await db.select({ id: users.id, name: users.name, enabled: users.enabled }).from(users).where(inArray(users.id, approverIds));
-    approvers.forEach((a) => approverMap.set(a.id, { name: a.name, enabled: a.enabled }));
+    approvers.forEach((a) => approverMap.set(a.id, { name: a.name, enabled: a.enabled ?? false }));
   }
 
   return apiOk({
