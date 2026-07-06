@@ -68,8 +68,16 @@ export async function POST(req: NextRequest) {
     v2RequestId = r.requestId;
     v2Detail = r.data;
   } catch (e) {
-    if (e instanceof V2ClientError && e.code === "V2_UNAVAILABLE") {
-      return apiError({ code: "V2_UNAVAILABLE", message: "V2 不可用，无法实时校验，禁止扫描", status: 503 });
+    if (e instanceof V2ClientError) {
+      if (e.code === "V2_UNAVAILABLE") {
+        return apiError({ code: "V2_UNAVAILABLE", message: "V2 服务不可用，无法校验运单，请稍后重试", status: 503 });
+      }
+      // V2 内部错误（V2_INTERNAL / HTTP_500 / V2_TIMEOUT 等），返回友好提示而非崩溃
+      return apiError({
+        code: "V2_INTERNAL",
+        message: `V2 运单校验失败（${e.message}，requestId=${e.requestId}），请稍后重试`,
+        status: 502,
+      });
     }
     throw e;
   }
@@ -85,8 +93,15 @@ export async function POST(req: NextRequest) {
     v2SkuRequestId = sr.requestId;
     v2Sku = sr.data;
   } catch (e) {
-    if (e instanceof V2ClientError && e.code === "V2_UNAVAILABLE") {
-      return apiError({ code: "V2_UNAVAILABLE", message: "V2 不可用，无法校验 SKU 归属", status: 503 });
+    if (e instanceof V2ClientError) {
+      if (e.code === "V2_UNAVAILABLE") {
+        return apiError({ code: "V2_UNAVAILABLE", message: "V2 服务不可用，无法校验 SKU 归属，请稍后重试", status: 503 });
+      }
+      return apiError({
+        code: "V2_INTERNAL",
+        message: `V2 SKU 校验失败（${e.message}，requestId=${e.requestId}），请稍后重试`,
+        status: 502,
+      });
     }
     throw e;
   }

@@ -190,19 +190,32 @@ async function writeLog(
   }
 }
 
-/** 校验并获取运单详情 —— §9.1 */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(v: string): boolean {
+  return UUID_RE.test(v);
+}
+
+/** 校验并获取运单详情 —— §9.1
+ *  当 shipmentId 不是 UUID 格式时，自动作为 externalCode 查询 */
 export async function v2Lookup(idOrCode: { shipmentId?: string; externalCode?: string }): Promise<{
   requestId: string;
   data: V2ShipmentDetail | null;
 }> {
   const requestId = genRequestId();
-  const hasId = !!idOrCode.shipmentId?.trim();
-  const hasCode = !!idOrCode.externalCode?.trim();
-  if (!hasId && !hasCode) {
+  const rawId = idOrCode.shipmentId?.trim();
+  const rawCode = idOrCode.externalCode?.trim();
+
+  // 推断：shipmentId 是 UUID 格式才用 shipmentId 参数，否则降级为 externalCode
+  const useId = rawId && isUuid(rawId);
+  const useCode = rawCode?.trim() || (!useId && rawId);
+  if (!useId && !useCode) {
     return { requestId, data: null };
   }
-  const qs = hasId ? `shipmentId=${encodeURIComponent(idOrCode.shipmentId!.trim())}` : `externalCode=${encodeURIComponent(idOrCode.externalCode!.trim())}`;
-  const summary = hasId ? { shipmentId: idOrCode.shipmentId } : { externalCode: idOrCode.externalCode };
+  const qs = useId
+    ? `shipmentId=${encodeURIComponent(rawId!)}`
+    : `externalCode=${encodeURIComponent(useCode!)}`;
+  const summary = useId ? { shipmentId: rawId } : { externalCode: useCode };
   try {
     const body = await callV2<{ requestId: string; data: V2ShipmentDetail }>(`/api/v1/shipments/lookup?${qs}`, "GET", summary, requestId);
     return { requestId, data: body.data };

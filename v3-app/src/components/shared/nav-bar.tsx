@@ -14,6 +14,7 @@ import {
   ChevronDown,
   LogOut,
   User as UserIcon,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession, ROLE_LABELS, apiFetch } from "./auth-context";
@@ -22,6 +23,7 @@ interface UserOption {
   id: string;
   name: string;
   roleCodes: string[];
+  enabled: boolean;
 }
 
 const navItems = [
@@ -86,6 +88,21 @@ export function NavBar() {
               </Link>
             );
           })}
+          {user?.roleCodes.includes("admin") && (
+            <Link
+              href="/admin/users"
+              title="用户管理"
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2.5 py-2 text-sm font-medium transition-all duration-200 no-underline sm:px-3",
+                pathname.startsWith("/admin/users")
+                  ? "bg-white/20 text-white"
+                  : "text-white/80 hover:bg-white/10 hover:text-white"
+              )}
+            >
+              <Users className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden md:inline">用户管理</span>
+            </Link>
+          )}
         </div>
 
         <div className="relative" ref={ref}>
@@ -117,15 +134,27 @@ export function NavBar() {
                 {users.map((u) => (
                   <button
                     key={u.id}
-                    onClick={() => switchUser(u.id).then(() => setOpen(false)).catch(() => {})}
+                    onClick={() => {
+                      if (!u.enabled) return;
+                      switchUser(u.id).then(() => setOpen(false)).catch(() => {});
+                    }}
+                    disabled={!u.enabled}
+                    title={u.enabled ? `切换到 ${u.name}` : `${u.name}（已禁用，不可切换）`}
                     className={cn(
                       "flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition-colors",
                       user?.id === u.id
                         ? "bg-[var(--color-primary-light)] text-[var(--color-primary-dark)]"
-                        : "hover:bg-[var(--color-bg-subtle)]"
+                        : u.enabled
+                          ? "hover:bg-[var(--color-bg-subtle)]"
+                          : "cursor-not-allowed opacity-50 bg-gray-50"
                     )}
                   >
-                    <span>{u.name}</span>
+                    <span className={u.enabled ? "" : "line-through"}>
+                      {u.name}
+                      {!u.enabled && (
+                        <span className="ml-1.5 text-xs text-red-400">(已禁用)</span>
+                      )}
+                    </span>
                     <span className="text-xs text-[var(--color-text-muted)]">
                       {u.roleCodes.map((r) => ROLE_LABELS[r] ?? r).join(", ")}
                     </span>

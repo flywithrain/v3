@@ -205,6 +205,7 @@ body {
 .tag-green { background: #e8faf0; color: #17c964; }
 .tag-gray { background: #f2f3f5; color: #4e5969; }
 .tag-blue { background: #e8f0ff; color: #1c4ed8; }
+.tag-purple { background: #f3e8ff; color: #7c3aed; }
 
 /* ====== 提示框 ====== */
 .alert {
