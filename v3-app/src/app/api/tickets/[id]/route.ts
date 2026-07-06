@@ -58,6 +58,15 @@ export async function GET(
     reporterName = u?.name ?? null;
   }
 
+  // 当前审批人姓名 + 启用状态
+  let assignedApproverName: string | null = null;
+  let assignedApproverEnabled: boolean | null = null;
+  if (ticket.assignedApproverId) {
+    const [appr] = await db.select({ name: users.name, enabled: users.enabled }).from(users).where(eq(users.id, ticket.assignedApproverId)).limit(1);
+    assignedApproverName = appr?.name ?? null;
+    assignedApproverEnabled = appr?.enabled ?? null;
+  }
+
   // 库存流水
   const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.ticketId, id)).orderBy(desc(inventoryMovements.createdAt));
 
@@ -73,7 +82,7 @@ export async function GET(
     .limit(50);
 
   return apiOk({
-    ticket: { ...ticket, reporterName },
+    ticket: { ...ticket, reporterName, assignedApproverName, assignedApproverEnabled },
     snapshot,
     snapshotSyncedAt: snapshot ? snapshot.sourceSyncedAt : null,
     isLiveFromV2: snapshot ? isRecent(snapshot.sourceSyncedAt) : false, // 60s 内视为实时

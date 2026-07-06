@@ -79,12 +79,12 @@ export async function GET(req: NextRequest) {
     snaps.forEach((s) => codeMap.set(s.id, s.externalCode));
   }
 
-  // 取审批人名称
+  // 取审批人名称 + 启用状态
   const approverIds = rows.map((r) => r.assignedApproverId).filter(Boolean) as string[];
-  const approverMap = new Map<string, string>();
+  const approverMap = new Map<string, { name: string; enabled: boolean }>();
   if (approverIds.length > 0) {
-    const approvers = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, approverIds));
-    approvers.forEach((a) => approverMap.set(a.id, a.name));
+    const approvers = await db.select({ id: users.id, name: users.name, enabled: users.enabled }).from(users).where(inArray(users.id, approverIds));
+    approvers.forEach((a) => approverMap.set(a.id, { name: a.name, enabled: a.enabled }));
   }
 
   return apiOk({
@@ -103,7 +103,8 @@ export async function GET(req: NextRequest) {
       currentLevel: r.currentLevel,
       externalCode: r.waybillSnapshotId ? codeMap.get(r.waybillSnapshotId) ?? null : null,
       v2ShipmentId: r.v2ShipmentId,
-      assignedApproverName: r.assignedApproverId ? approverMap.get(r.assignedApproverId) ?? null : null,
+      assignedApproverName: r.assignedApproverId ? approverMap.get(r.assignedApproverId)?.name ?? null : null,
+      assignedApproverEnabled: r.assignedApproverId ? approverMap.get(r.assignedApproverId)?.enabled ?? null : null,
       dueAt: r.dueAt,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,

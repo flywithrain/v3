@@ -6,7 +6,7 @@ import {
   users,
   auditLogs,
 } from "@/lib/db-schema";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, ilike } from "drizzle-orm";
 import { getCurrentUser, apiOk, apiError, requireRoles } from "@/lib/auth";
 import type { ApprovalAction } from "@/types";
 
@@ -139,6 +139,7 @@ export async function GET(
   // 根据工单当前层级过滤合适的审批人
   const neededRole = ticket.currentLevel === 1 ? "level1_approver" : "level2_approver";
 
+  // 使用 LIKE 匹配支持复合角色（如 "operator,level1_approver"）
   const candidates = await db
     .select({ id: users.id, name: users.name, roleCodes: users.roleCodes })
     .from(users)
@@ -147,17 +148,28 @@ export async function GET(
         eq(users.enabled, true),
         or(
           eq(users.roleCodes, neededRole),
-          eq(users.roleCodes, `admin,${neededRole}`),
-          eq(users.roleCodes, `${neededRole},admin`)
+          ilike(users.roleCodes, `%,${neededRole},%`),
+          ilike(users.roleCodes, `${neededRole},%`),
+          ilike(users.roleCodes, `%,${neededRole}`)
         )
       )
     );
 
-  // 也包含 admin 角色用户
+  // 也包含 admin 角色用户（admin 可以审批任意层级）
   const admins = await db
     .select({ id: users.id, name: users.name, roleCodes: users.roleCodes })
     .from(users)
-    .where(eq(users.roleCodes, "admin"));
+    .where(
+      and(
+        eq(users.enabled, true),
+        or(
+          eq(users.roleCodes, "admin"),
+          ilike(users.roleCodes, "admin,%"),
+          ilike(users.roleCodes, "%,admin,%"),
+          ilike(users.roleCodes, "%,admin")
+        )
+      )
+    );
 
   // 合并去重
   const seen = new Set(candidates.map((c) => c.id));
