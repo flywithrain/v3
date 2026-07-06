@@ -156,6 +156,7 @@ export default function TicketDetailPage() {
     suggestQuickApprove: boolean;
     matchedKeywords: string[];
     disclaimer: string;
+    aiSource?: { model: string; provider: string };
   }
   const [aiSuggest, setAiSuggest] = useState<AiSuggestResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -367,7 +368,14 @@ export default function TicketDetailPage() {
           <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-main)]">
             <Brain className="h-4 w-4 text-purple-500" /> AI 辅助建议
             {aiSuggest && (
-              <span className="tag tag-orange text-xs">AI建议,需人工确认</span>
+              <>
+                <span className="tag tag-orange text-xs">AI建议,需人工确认</span>
+                {aiSuggest.aiSource && (
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    ({aiSuggest.aiSource.model})
+                  </span>
+                )}
+              </>
             )}
           </h2>
           {!aiSuggest && !aiLoading && (

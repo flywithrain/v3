@@ -1,12 +1,12 @@
 /**
- * AI 辅助建议引擎（轻量关键词规则匹配）
+ * AI 辅助建议引擎（关键词规则 + OpenAI 兼容 LLM）
  *
- * 功能：
- * 1. 根据异常描述文本推荐子类型和严重度
- * 2. 根据工单属性（金额/严重度/历史）给出审批建议
+ * 策略：
+ * 1. 始终先运行关键词规则（本地，零延迟）
+ * 2. 如果配置了 LLM，额外调用获取智能审批建议文本
+ * 3. LLM 失败时自动降级为纯规则模式
  *
  * 所有建议标注 "AI建议,需人工确认"。
- * 无需外部 API 依赖，纯规则匹配。可扩展为接入 OpenAI 兼容 API。
  */
 
 export interface AiAssistResult {
@@ -159,7 +159,7 @@ export function generateApprovalSuggestion(params: {
 }
 
 /**
- * 综合 AI 辅助建议
+ * 综合 AI 辅助建议（纯规则，同步）
  */
 export function generateAiAssist(params: {
   description: string;
@@ -189,4 +189,75 @@ export function generateAiAssist(params: {
     matchedKeywords: subtypeResult.matchedKeywords,
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * 获取 AI 建议的来源信息
+ */
+export function getAiSource(): { model: string; provider: string } {
+  // 动态导入避免循环依赖
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { isLlmConfigured, getLlmModelName, getLlmEndpoint } = require("./llm-client") as typeof import("./llm-client");
+  if (isLlmConfigured()) {
+    return { model: getLlmModelName(), provider: getLlmEndpoint() };
+  }
+  return { model: "rule-engine (keyword-based)", provider: "local" };
+}
+
+/**
+ * 混合 AI 建议（关键词 + LLM）
+ *
+ * 始终运行关键词引擎（零延迟），如果 LLM 可用则额外调用增强审批建议。
+ * LLM 失败时自动降级，返回规则引擎的结果。
+ */
+export async function generateAiAssistHybrid(params: {
+  description: string;
+  severity: string;
+  estimatedAmount: number;
+  subtype: string;
+  status: string;
+  resubmitCount: number;
+}): Promise<AiAssistResult & { aiSource: { model: string; provider: string } }> {
+  const { isLlmConfigured, classifyWithLlm, getLlmModelName, getLlmEndpoint } =
+    await import("./llm-client");
+
+  // 1. 始终先跑关键词规则（本地，零延迟）
+  const ruleResult = generateAiAssist(params);
+
+  if (!isLlmConfigured()) {
+    return {
+      ...ruleResult,
+      aiSource: { model: "rule-engine (keyword-based)", provider: "local" },
+    };
+  }
+
+  // 2. 调用 LLM 获取智能审批建议
+  try {
+    const llmResult = await classifyWithLlm({
+      description: params.description,
+      estimatedAmount: params.estimatedAmount,
+      status: params.status,
+      resubmitCount: params.resubmitCount,
+    });
+
+    // 用 LLM 的审批建议替换规则模板建议
+    return {
+      suggestedSubtype: llmResult.subtype || ruleResult.suggestedSubtype,
+      subtypeConfidence: llmResult.subtypeConfidence ?? ruleResult.subtypeConfidence,
+      suggestedSeverity: llmResult.severity || ruleResult.suggestedSeverity,
+      severityConfidence: llmResult.severityConfidence ?? ruleResult.severityConfidence,
+      approvalSuggestion: llmResult.approvalSuggestion,
+      suggestQuickApprove: llmResult.suggestQuickApprove,
+      matchedKeywords: ruleResult.matchedKeywords,
+      generatedAt: new Date().toISOString(),
+      aiSource: { model: getLlmModelName(), provider: getLlmEndpoint() },
+    };
+  } catch {
+    // LLM 失败，降级为纯规则结果
+    console.warn("[ai-assist] LLM 调用失败，降级为规则引擎");
+    return {
+      ...ruleResult,
+      aiSource: { model: `rule-engine (fallback from ${getLlmModelName()})`, provider: "local" },
+    };
+  }
 }
