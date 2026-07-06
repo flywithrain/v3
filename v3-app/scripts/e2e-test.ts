@@ -367,12 +367,11 @@ async function main() {
 
   // ──────────── 数据统计 ────────────
   hr("数据库统计");
-  const cnt = (table: unknown) => db.select({ cnt: sql`count(*)` }).from(table as Parameters<typeof db.select>[0]);
-  const ticketRes = await cnt(exceptionTickets);
-  const scanRes = await cnt(scanRecords);
-  const snapRes = await cnt(waybillSnapshots);
+  const ticketRes = await db.select({ cnt: sql`count(*)` }).from(exceptionTickets);
+  const scanRes = await db.select({ cnt: sql`count(*)` }).from(scanRecords);
+  const snapRes = await db.select({ cnt: sql`count(*)` }).from(waybillSnapshots);
   const ruleRes = await db.select({ cnt: sql`count(*)` }).from(qcRules).where(eq(qcRules.enabled, true));
-  const approvRuleRes = await cnt(approvalRules);
+  const approvRuleRes = await db.select({ cnt: sql`count(*)` }).from(approvalRules);
 
   console.log(`  工单总数: ${ticketRes[0]?.cnt ?? "?"}`);
   console.log(`  扫描记录: ${scanRes[0]?.cnt ?? "?"}`);
