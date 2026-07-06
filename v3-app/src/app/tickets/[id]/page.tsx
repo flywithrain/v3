@@ -13,7 +13,7 @@ import {
   Coins,
   ShieldCheck,
   AlertTriangle,
-  UserSwitch,
+  ArrowLeftRight,
   Sparkles,
   Brain,
 } from "lucide-react";
@@ -319,7 +319,7 @@ export default function TicketDetailPage() {
             </button>
             {canTransfer && (
               <button onClick={openTransferModal} disabled={loadingCandidates} className="btn-outline">
-                <UserSwitch className="h-4 w-4" /> 转交审批人
+                <ArrowLeftRight className="h-4 w-4" /> 转交审批人
               </button>
             )}
             {canApproveL1 && (

@@ -58,6 +58,7 @@ const SUBTYPE_FILTERS = [
   { value: "label_mismatch", label: "标签不一致" },
   { value: "batch_risk", label: "批次风险" },
 ];
+const STATUS_FILTERS = [
   { value: "", label: "全部状态" },
   { value: "pending_review", label: "待重审" },
   { value: "level1_reviewing", label: "一级审批中" },
