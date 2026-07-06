@@ -309,7 +309,7 @@ export default function TicketDetailPage() {
               <span className="tag tag-gray">{subtypeLabel(t.subtype)}</span>
               <span className="tag tag-gray">{sourceLabel(t.source)}</span>
               <span className="text-xs text-[var(--color-text-muted)]">
-                当前层级 {t.currentLevel ?? "-"} · 重提次数 {t.resubmitCount}/2 · version {t.version}
+                当前层级 {t.currentLevel != null && t.currentLevel > 0 ? t.currentLevel : "-"} · 重提次数 {t.resubmitCount}/2 · version {t.version}
               </span>
             </div>
           </div>

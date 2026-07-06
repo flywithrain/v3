@@ -248,7 +248,7 @@ export default function TicketsPage() {
                   <td>{sourceLabel(t.source)}</td>
                   <td>{subtypeLabel(t.subtype)}</td>
                   <td><SeverityBadge severity={t.severity} /></td>
-                  <td>{t.currentLevel != null ? `${t.currentLevel} 级` : "-"}</td>
+                  <td>{t.currentLevel != null && t.currentLevel > 0 ? `${t.currentLevel} 级` : "-"}</td>
                   <td>{t.estimatedAmount}</td>
                   <td className="font-mono text-xs">{t.externalCode ?? "-"}</td>
                   <td><StatusBadge status={t.status} /></td>
