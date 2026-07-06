@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/jobs/sync",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/jobs/timeout",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

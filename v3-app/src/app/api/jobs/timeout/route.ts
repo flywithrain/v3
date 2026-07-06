@@ -5,6 +5,7 @@ import {
   approvalRecords,
   scanRecords,
   auditLogs,
+  users,
 } from "@/lib/db-schema";
 import { eq, and, lte, isNotNull, inArray } from "drizzle-orm";
 import { apiOk, apiError } from "@/lib/auth";
@@ -176,6 +177,116 @@ export async function POST(req: NextRequest) {
         stillHold.forEach((s) => results.push({ ticketId: s.ticketId!, action: "qc_hold_timeout", from: "qc_hold", to: "escalated" }));
       });
     } catch (e) { console.error("[timeout] 暂扣超时批量处理失败:", e); }
+  }
+
+  // ====== 4. 审批人禁用兜底 —— 自动转交工单（考试文档 模块二） ======
+  try {
+    // 查被禁用的审批人名下处于审批中状态的工单
+    const disabledApproverTickets = await db
+      .select({
+        ticket: exceptionTickets,
+        approverName: users.name,
+      })
+      .from(exceptionTickets)
+      .innerJoin(users, eq(exceptionTickets.assignedApproverId, users.id))
+      .where(
+        and(
+          eq(users.enabled, false),
+          inArray(exceptionTickets.status, ["level1_reviewing", "level2_reviewing"])
+        )
+      )
+      .execute();
+
+    if (disabledApproverTickets.length > 0) {
+      await db.transaction(async (tx) => {
+        for (const { ticket } of disabledApproverTickets) {
+          const [current] = await tx
+            .select()
+            .from(exceptionTickets)
+            .where(eq(exceptionTickets.id, ticket.id))
+            .limit(1)
+            .execute();
+          if (!current || !["level1_reviewing", "level2_reviewing"].includes(current.status)) continue;
+
+          const isLevel1 = current.status === "level1_reviewing";
+          const nowDate = new Date();
+
+          // 一级工单：自动升级到二级（清除 assignedApproverId，后续二级审批重新分配）
+          // 二级工单：清除 assignedApproverId，重置 dueAt 延迟 4h
+          if (isLevel1) {
+            const dueAt2 = new Date(nowDate.getTime() + 24 * 3600 * 1000);
+            await tx
+              .update(exceptionTickets)
+              .set({
+                status: "level2_reviewing",
+                currentLevel: 2,
+                assignedApproverId: null,
+                version: Number(current.version) + 1,
+                dueAt: dueAt2,
+                lastActionAt: nowDate,
+                updatedAt: nowDate,
+              })
+              .where(eq(exceptionTickets.id, ticket.id));
+
+            await tx.insert(approvalRecords).values({
+              id: crypto.randomUUID(),
+              ticketId: ticket.id,
+              approverId: null,
+              level: 1,
+              action: "transfer",
+              comment: "一级审批人账号已禁用，自动升级二级",
+              fromStatus: "level1_reviewing",
+              toStatus: "level2_reviewing",
+            });
+          } else {
+            const newDue = new Date(nowDate.getTime() + 4 * 3600 * 1000);
+            await tx
+              .update(exceptionTickets)
+              .set({
+                assignedApproverId: null,
+                version: Number(current.version) + 1,
+                dueAt: newDue,
+                lastActionAt: nowDate,
+                updatedAt: nowDate,
+              })
+              .where(eq(exceptionTickets.id, ticket.id));
+
+            await tx.insert(approvalRecords).values({
+              id: crypto.randomUUID(),
+              ticketId: ticket.id,
+              approverId: null,
+              level: 2,
+              action: "transfer",
+              comment: "二级审批人账号已禁用，自动清除分配",
+              fromStatus: "level2_reviewing",
+              toStatus: "level2_reviewing",
+            });
+          }
+
+          await tx.insert(auditLogs).values({
+            actorId: null,
+            targetType: "ticket",
+            targetId: ticket.id,
+            action: "approver_disabled_transfer",
+            detail: {
+              ticketNo: ticket.ticketNo,
+              disabledApproverId: ticket.assignedApproverId,
+              action: isLevel1 ? "escalate_to_level2" : "clear_assignee",
+            },
+          });
+
+          processed++;
+          results.push({
+            ticketId: ticket.id,
+            action: "approver_disabled_transfer",
+            from: current.status,
+            to: isLevel1 ? "level2_reviewing" : "level2_reviewing",
+          });
+        }
+      });
+    }
+  } catch (e) {
+    console.error("[timeout] 审批人禁用兜底处理失败:", e);
   }
 
   return apiOk({ processed, checkedAt: now.toISOString(), details: results });

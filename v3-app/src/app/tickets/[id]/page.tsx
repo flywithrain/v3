@@ -13,6 +13,9 @@ import {
   Coins,
   ShieldCheck,
   AlertTriangle,
+  UserSwitch,
+  Sparkles,
+  Brain,
 } from "lucide-react";
 import { apiFetch, ApiError, useSession } from "@/components/shared/auth-context";
 import { useToast } from "@/components/shared/toast";
@@ -125,18 +128,52 @@ const ACTION_LABELS: Record<string, string> = {
 export default function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
-  const { loading: sessLoading } = useSession();
+  const { user, loading: sessLoading } = useSession();
 
   const [data, setData] = useState<DetailResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const [modal, setModal] = useState<null | "approve" | "reject" | "resubmit">(null);
+  const [modal, setModal] = useState<null | "approve" | "reject" | "resubmit" | "transfer">(null);
   const [comment, setComment] = useState("");
   const [executionAction, setExecutionAction] = useState("pay_customer");
   const [actionLevel, setActionLevel] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // 转交相关
+  const [transferCandidates, setTransferCandidates] = useState<{ id: string; name: string }[]>([]);
+  const [transferTargetId, setTransferTargetId] = useState("");
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+
+  // AI 建议相关
+  interface AiSuggestResult {
+    suggestedSubtype: string;
+    subtypeConfidence: number;
+    suggestedSeverity: string;
+    severityConfidence: number;
+    approvalSuggestion: string;
+    suggestQuickApprove: boolean;
+    matchedKeywords: string[];
+    disclaimer: string;
+  }
+  const [aiSuggest, setAiSuggest] = useState<AiSuggestResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function fetchAiSuggest() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const r = await apiFetch<AiSuggestResult>(`/api/tickets/${id}/ai-suggest`);
+      setAiSuggest(r);
+    } catch (e) {
+      setAiError((e as Error).message);
+      setAiSuggest(null);
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -166,6 +203,39 @@ export default function TicketDetailPage() {
       toast.showToast((e as Error).message, "error");
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function openTransferModal() {
+    setLoadingCandidates(true);
+    try {
+      const r = await apiFetch<{ candidates: { id: string; name: string }[] }>(`/api/tickets/${id}/transfer`);
+      setTransferCandidates(r.candidates);
+      setTransferTargetId(r.candidates[0]?.id ?? "");
+      setModal("transfer");
+    } catch (e) {
+      toast.showToast("获取审批人列表失败：" + (e as Error).message, "error");
+    } finally {
+      setLoadingCandidates(false);
+    }
+  }
+
+  async function submitTransfer() {
+    if (!transferTargetId) return;
+    setBusy(true);
+    try {
+      const r = await apiFetch<{ newApproverName: string }>(
+        `/api/tickets/${id}/transfer`,
+        { method: "POST", body: JSON.stringify({ targetApproverId: transferTargetId, comment: comment.trim() || undefined }) }
+      );
+      toast.showToast(`已转交给审批人 ${r.newApproverName}`, "success");
+      setModal(null);
+      setComment("");
+      await load();
+    } catch (e) {
+      toast.showToast((e as Error).message, "error");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -219,6 +289,8 @@ export default function TicketDetailPage() {
   const canApproveL1 = data.canApprove.level1;
   const canApproveL2 = data.canApprove.level2;
   const canResubmit = (t.status === "rejected" || t.status === "auto_rejected_timeout") && t.resubmitCount < 2;
+  const isAdmin = user?.roleCodes.includes("admin");
+  const canTransfer = isAdmin && (t.status === "level1_reviewing" || t.status === "level2_reviewing");
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
@@ -244,6 +316,11 @@ export default function TicketDetailPage() {
             <button onClick={refreshV2} disabled={refreshing} className="btn-ghost">
               <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> 刷新 V2
             </button>
+            {canTransfer && (
+              <button onClick={openTransferModal} disabled={loadingCandidates} className="btn-outline">
+                <UserSwitch className="h-4 w-4" /> 转交审批人
+              </button>
+            )}
             {canApproveL1 && (
               <button onClick={() => { setModal("approve"); setActionLevel(1); }} className="btn-primary">
                 <CheckCircle className="h-4 w-4" /> 一级通过
@@ -282,6 +359,74 @@ export default function TicketDetailPage() {
           <div className="text-xs text-[var(--color-text-muted)]">问题描述</div>
           <div className="mt-1 whitespace-pre-wrap text-sm text-[var(--color-text-main)]">{t.description}</div>
         </div>
+      </div>
+
+      {/* AI 辅助建议卡片 */}
+      <div className="card mt-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-main)]">
+            <Brain className="h-4 w-4 text-purple-500" /> AI 辅助建议
+            {aiSuggest && (
+              <span className="tag tag-orange text-xs">AI建议,需人工确认</span>
+            )}
+          </h2>
+          {!aiSuggest && !aiLoading && (
+            <button onClick={fetchAiSuggest} className="btn-ghost text-sm">
+              <Sparkles className="h-4 w-4" /> 获取 AI 建议
+            </button>
+          )}
+        </div>
+        {aiLoading && (
+          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+            <Sparkles className="h-4 w-4 animate-pulse" /> AI 分析中…
+          </div>
+        )}
+        {aiError && (
+          <div className="text-sm text-red-500">AI 建议获取失败：{aiError}</div>
+        )}
+        {aiSuggest && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <div className="text-xs text-[var(--color-text-muted)]">推荐异常类型</div>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="tag tag-teal">{subtypeLabel(aiSuggest.suggestedSubtype)}</span>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  置信度 {(aiSuggest.subtypeConfidence * 100).toFixed(0)}%
+                </span>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--color-text-muted)]">推荐严重度</div>
+              <div className="mt-1 flex items-center gap-2">
+                <SeverityBadge severity={aiSuggest.suggestedSeverity} />
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  置信度 {(aiSuggest.severityConfidence * 100).toFixed(0)}%
+                </span>
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <div className="text-xs text-[var(--color-text-muted)]">审批建议</div>
+              <div className="mt-1 text-sm text-[var(--color-text-main)]">{aiSuggest.approvalSuggestion}</div>
+            </div>
+            {aiSuggest.matchedKeywords.length > 0 && (
+              <div className="sm:col-span-2">
+                <div className="text-xs text-[var(--color-text-muted)]">匹配关键词</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {aiSuggest.matchedKeywords.map((kw) => (
+                    <span key={kw} className="tag tag-gray text-xs">{kw}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {aiSuggest.suggestQuickApprove && (
+              <div className="sm:col-span-2">
+                <div className="flex items-center gap-2 rounded bg-green-50 px-3 py-2 text-sm text-green-700">
+                  <CheckCircle className="h-4 w-4" /> AI 分析：小额工单，建议快速处理
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card mt-4">
@@ -435,7 +580,38 @@ export default function TicketDetailPage() {
         )}
       </div>
 
-      {modal && (
+      {modal && modal === "transfer" && (
+        <Modal title="转交审批人" onClose={() => setModal(null)}>
+          <label className="mb-3 flex flex-col gap-1">
+            <span className="text-sm text-[var(--color-text-secondary)]">目标审批人</span>
+            <select
+              value={transferTargetId}
+              onChange={(e) => setTransferTargetId(e.target.value)}
+              className="input-field"
+            >
+              {transferCandidates.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm text-[var(--color-text-secondary)]">转交原因</span>
+            <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} className="input-field" placeholder="输入转交原因（选填）" />
+          </label>
+          <div className="mt-4 flex justify-end gap-2">
+            <button onClick={() => setModal(null)} className="btn-ghost">取消</button>
+            <button
+              onClick={submitTransfer}
+              disabled={busy || !transferTargetId}
+              className="btn-primary"
+            >
+              {busy ? "转交中…" : "确认转交"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {modal && modal !== "transfer" && (
         <Modal title={modal === "approve" ? "审批通过" : modal === "reject" ? "审批拒绝" : "重提工单"} onClose={() => setModal(null)}>
           {(modal === "approve" || modal === "reject") && (canApproveL1 && canApproveL2) && (
             <label className="mb-3 flex flex-col gap-1">

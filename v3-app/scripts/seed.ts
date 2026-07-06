@@ -147,6 +147,16 @@ async function seed() {
     { skuCode: "SKU-008", skuName: "降噪耳机", batchNo: "BATCH-008", availableQuantity: "90", status: "normal" },
     { skuCode: "SKU-009", skuName: "车载支架", batchNo: "BATCH-009", availableQuantity: "0", status: "returned" },
     { skuCode: "SKU-010", skuName: "便携投影仪", batchNo: "BATCH-010", availableQuantity: "40", status: "normal" },
+    { skuCode: "SKU-011", skuName: "无线充电器", batchNo: "BATCH-011", availableQuantity: "180", status: "normal" },
+    { skuCode: "SKU-012", skuName: "数据线套装", batchNo: "BATCH-012", availableQuantity: "500", status: "normal" },
+    { skuCode: "SKU-013", skuName: "平板保护壳", batchNo: "BATCH-013", availableQuantity: "0", status: "returned" },
+    { skuCode: "SKU-001", skuName: "无线蓝牙耳机", batchNo: "BATCH-014", availableQuantity: "100", status: "normal" },
+    { skuCode: "SKU-014", skuName: "智能音箱", batchNo: "BATCH-015", availableQuantity: "75", status: "normal" },
+    { skuCode: "SKU-015", skuName: "笔记本电脑支架", batchNo: "BATCH-016", availableQuantity: "120", status: "normal" },
+    { skuCode: "SKU-003", skuName: "机械键盘", batchNo: "BATCH-017", availableQuantity: "0", status: "scrapped" },
+    { skuCode: "SKU-016", skuName: "USB集线器", batchNo: "BATCH-018", availableQuantity: "200", status: "normal" },
+    { skuCode: "SKU-017", skuName: "防蓝光眼镜", batchNo: "BATCH-019", availableQuantity: "45", status: "locked" },
+    { skuCode: "SKU-018", skuName: "手机散热器", batchNo: "BATCH-020", availableQuantity: "90", status: "normal" },
   ];
   const insertedBatches = await db.insert(inventoryItems).values(batchRows).returning({ id: inventoryItems.id, skuCode: inventoryItems.skuCode, batchNo: inventoryItems.batchNo });
   console.log(`  库存批次 ${insertedBatches.length} 条`);

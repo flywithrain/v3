@@ -21,6 +21,23 @@ export function formatDateTime(dateStr: string | Date | null | undefined): strin
   });
 }
 
+/** 即将超时：距截止时间不足 4 小时，且尚未超时 */
+export function isTimeoutUrgent(dueAt: string | Date | null | undefined): boolean {
+  if (!dueAt) return false;
+  const ms = typeof dueAt === "string" ? new Date(dueAt).getTime() : dueAt.getTime();
+  if (isNaN(ms)) return false;
+  const now = Date.now();
+  return ms > now && ms - now <= 4 * 3600 * 1000;
+}
+
+/** 已超时 */
+export function isTimeoutOverdue(dueAt: string | Date | null | undefined): boolean {
+  if (!dueAt) return false;
+  const ms = typeof dueAt === "string" ? new Date(dueAt).getTime() : dueAt.getTime();
+  if (isNaN(ms)) return false;
+  return ms <= Date.now();
+}
+
 // 生成工单号：V3 + YYYYMMDD + 6位随机
 export function generateTicketNo(d: Date = new Date()): string {
   const ymd =

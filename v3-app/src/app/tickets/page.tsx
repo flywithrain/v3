@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Search, Plus, FileText } from "lucide-react";
+import { Search, Plus, FileText, AlertTriangle, Clock } from "lucide-react";
 import { apiFetch, useSession } from "@/components/shared/auth-context";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, isTimeoutUrgent, isTimeoutOverdue } from "@/lib/utils";
 import { StatusBadge, SeverityBadge, subtypeLabel, sourceLabel } from "@/components/shared/badges";
 
 interface TicketItem {
@@ -19,6 +19,7 @@ interface TicketItem {
   currentLevel: number | null;
   externalCode: string | null;
   v2ShipmentId: string | null;
+  assignedApproverName: string | null;
   dueAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -32,7 +33,31 @@ interface ListResp {
   items: TicketItem[];
 }
 
-const STATUS_FILTERS = [
+const SOURCE_FILTERS = [
+  { value: "", label: "全部来源" },
+  { value: "manual_report", label: "人工上报" },
+  { value: "scan_qc", label: "扫码品控" },
+];
+
+const CATEGORY_FILTERS = [
+  { value: "", label: "全部大类" },
+  { value: "logistics", label: "物流异常" },
+  { value: "quality_control", label: "品控异常" },
+];
+
+const SUBTYPE_FILTERS = [
+  { value: "", label: "全部子类型" },
+  { value: "lost", label: "丢件" },
+  { value: "damaged", label: "破损" },
+  { value: "rejected", label: "拒收" },
+  { value: "timeout_unsigned", label: "超时未签收" },
+  { value: "address_error", label: "地址错误" },
+  { value: "quantity_mismatch", label: "数量差异" },
+  { value: "damage", label: "外观破损" },
+  { value: "spec_mismatch", label: "规格不符" },
+  { value: "label_mismatch", label: "标签不一致" },
+  { value: "batch_risk", label: "批次风险" },
+];
   { value: "", label: "全部状态" },
   { value: "pending_review", label: "待重审" },
   { value: "level1_reviewing", label: "一级审批中" },
@@ -51,6 +76,9 @@ export default function TicketsPage() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [status, setStatus] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [subtypeFilter, setSubtypeFilter] = useState("");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [loading2, setLoading2] = useState(false);
@@ -61,6 +89,9 @@ export default function TicketsPage() {
     setErr(null);
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (status) params.set("status", status);
+    if (sourceFilter) params.set("source", sourceFilter);
+    if (categoryFilter) params.set("category", categoryFilter);
+    if (subtypeFilter) params.set("subtype", subtypeFilter);
     if (search) params.set("search", search);
     try {
       const r = await apiFetch<ListResp>(`/api/tickets?${params.toString()}`);
@@ -71,7 +102,7 @@ export default function TicketsPage() {
     } finally {
       setLoading2(false);
     }
-  }, [page, pageSize, status, search]);
+  }, [page, pageSize, status, sourceFilter, categoryFilter, subtypeFilter, search]);
 
   useEffect(() => {
     load();
@@ -103,6 +134,42 @@ export default function TicketsPage() {
           className="input-field !w-auto"
         >
           {STATUS_FILTERS.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => {
+            setSourceFilter(e.target.value);
+            setPage(1);
+          }}
+          className="input-field !w-auto"
+        >
+          {SOURCE_FILTERS.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+        <select
+          value={categoryFilter}
+          onChange={(e) => {
+            setCategoryFilter(e.target.value);
+            setPage(1);
+          }}
+          className="input-field !w-auto"
+        >
+          {CATEGORY_FILTERS.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+        <select
+          value={subtypeFilter}
+          onChange={(e) => {
+            setSubtypeFilter(e.target.value);
+            setPage(1);
+          }}
+          className="input-field !w-auto"
+        >
+          {SUBTYPE_FILTERS.map((s) => (
             <option key={s.value} value={s.value}>{s.label}</option>
           ))}
         </select>
@@ -154,6 +221,7 @@ export default function TicketsPage() {
                 <th>来源</th>
                 <th>子类型</th>
                 <th>严重度</th>
+                <th>层级</th>
                 <th>预估金额</th>
                 <th>外部编码</th>
                 <th>状态</th>
@@ -164,21 +232,32 @@ export default function TicketsPage() {
             </thead>
             <tbody>
               {loading2 && (
-                <tr><td colSpan={10} className="text-center text-[var(--color-text-muted)]">加载中…</td></tr>
+                <tr><td colSpan={11} className="text-center text-[var(--color-text-muted)]">加载中…</td></tr>
               )}
               {!loading2 && items.length === 0 && (
-                <tr><td colSpan={10} className="text-center text-[var(--color-text-muted)]">暂无工单</td></tr>
+                <tr><td colSpan={11} className="text-center text-[var(--color-text-muted)]">暂无工单</td></tr>
               )}
-              {!loading2 && items.map((t) => (
-                <tr key={t.id}>
+              {!loading2 && items.map((t) => {
+                const urgent = isTimeoutUrgent(t.dueAt);
+                const overdue = isTimeoutOverdue(t.dueAt);
+                const rowClass = overdue ? "bg-red-50" : urgent ? "bg-orange-50" : "";
+                return (
+                <tr key={t.id} className={rowClass}>
                   <td className="font-mono text-xs">{t.ticketNo}</td>
                   <td>{sourceLabel(t.source)}</td>
                   <td>{subtypeLabel(t.subtype)}</td>
                   <td><SeverityBadge severity={t.severity} /></td>
+                  <td>{t.currentLevel != null ? `${t.currentLevel} 级` : "-"}</td>
                   <td>{t.estimatedAmount}</td>
                   <td className="font-mono text-xs">{t.externalCode ?? "-"}</td>
                   <td><StatusBadge status={t.status} /></td>
-                  <td className="text-xs">{formatDateTime(t.dueAt)}</td>
+                  <td className="text-xs">
+                    <span className="inline-flex items-center gap-1">
+                      {formatDateTime(t.dueAt)}
+                      {overdue && <AlertTriangle className="h-3 w-3 text-red-500" title="已超时" />}
+                      {!overdue && urgent && <Clock className="h-3 w-3 text-orange-500" title="即将超时" />}
+                    </span>
+                  </td>
                   <td className="text-xs">{formatDateTime(t.createdAt)}</td>
                   <td>
                     <Link href={`/tickets/${t.id}`} className="text-[var(--color-primary)] no-underline hover:underline">
@@ -186,7 +265,8 @@ export default function TicketsPage() {
                     </Link>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

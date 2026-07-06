@@ -33,13 +33,18 @@ export function SeverityBadge({ severity }: { severity: string }) {
 }
 
 const SUBTYPE_LABELS: Record<string, string> = {
-  loss: "丢件",
-  damage: "破损",
-  wrong_item: "错发",
-  missing_item: "少发",
-  delivery_failure: "配送失败",
+  // 物流异常子类型 (LogisticsSubtype)
+  lost: "丢件",
+  damaged: "破损",
+  rejected: "拒收",
+  timeout_unsigned: "超时未签收",
   address_error: "地址错误",
-  other: "其他",
+  // 品控异常子类型 (QcSubtype)
+  quantity_mismatch: "数量差异",
+  damage: "外观破损",
+  spec_mismatch: "规格不符",
+  label_mismatch: "标签不一致",
+  batch_risk: "批次风险",
 };
 
 export function subtypeLabel(subtype: string): string {
