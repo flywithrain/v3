@@ -255,8 +255,8 @@ export default function TicketsPage() {
                   <td className="text-xs">
                     <span className="inline-flex items-center gap-1">
                       {formatDateTime(t.dueAt)}
-                      {overdue && <AlertTriangle className="h-3 w-3 text-red-500" title="已超时" />}
-                      {!overdue && urgent && <Clock className="h-3 w-3 text-orange-500" title="即将超时" />}
+                      {overdue && <span title="已超时"><AlertTriangle className="h-3 w-3 text-red-500" /></span>}
+                      {!overdue && urgent && <span title="即将超时"><Clock className="h-3 w-3 text-orange-500" /></span>}
                     </span>
                   </td>
                   <td className="text-xs">{formatDateTime(t.createdAt)}</td>
