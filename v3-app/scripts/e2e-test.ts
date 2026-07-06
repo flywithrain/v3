@@ -250,7 +250,7 @@ async function main() {
             id: ticketId, ticketNo, waybillSnapshotId: snapId, v2ShipmentId: testWb.id,
             source: "scan_qc", category: "quality_control",
             subtype: qcResult.subtype ?? "quantity_mismatch",
-            severity: qcResult.severity as string,
+            severity: qcResult.severity as Severity,
             estimatedAmount: "50",
             description: `[E2E测试-场景B] ${qcResult.reason}`,
             status: initialStatusForLevel(route.targetLevel),
@@ -296,7 +296,7 @@ async function main() {
     else {
       ok(`命中规则: ${qcResult.ruleName} (severity=${qcResult.severity})`);
       ok(`原因: ${qcResult.reason}`);
-      const route = await routeApproval({ category: "quality_control", subtype: "damage", severity: qcResult.severity as string, estimatedAmount: 0 });
+      const route = await routeApproval({ category: "quality_control", subtype: "damage", severity: qcResult.severity as Severity, estimatedAmount: 0 });
       info(`审批路由: level=${route.targetLevel} (品控默认${route.targetLevel}级)`);
     }
   }
