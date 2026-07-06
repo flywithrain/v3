@@ -16,6 +16,7 @@
 // 必须在所有 import 之前加载 env（ESM 静态 import 会 hoist）
 import { config } from "dotenv";
 import { resolve } from "path";
+import type { Severity } from "../src/types";
 config({ path: resolve(process.cwd(), ".env.local") });
 
 // ── helpers ──────────────────────────────────────────────
@@ -233,7 +234,7 @@ async function main() {
       // 审批路由 amount=50 → ≤100 → 但品控默认二级
       const route = await routeApproval({
         category: "quality_control", subtype: qcResult.subtype ?? "quantity_mismatch",
-        severity: qcResult.severity as string, estimatedAmount: 50,
+        severity: qcResult.severity as Severity, estimatedAmount: 50,
       });
       info(`审批路由 amount=50: level=${route.targetLevel}, status=${initialStatusForLevel(route.targetLevel)}`);
 
