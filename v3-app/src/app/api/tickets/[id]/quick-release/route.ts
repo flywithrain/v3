@@ -8,7 +8,7 @@ import {
   approvalRecords,
   auditLogs,
 } from "@/lib/db-schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { getCurrentUser, apiOk, apiError } from "@/lib/auth";
 import { findExistingByKey } from "@/lib/idempotency";
 import type { MovementType } from "@/types";
@@ -114,43 +114,66 @@ export async function POST(
         })
         .where(eq(exceptionTickets.id, ticketId));
 
-      // 扫描批次 → released
+      // 扫描批次 → released（批量更新）
       const scans = await tx
         .select()
         .from(scanRecords)
         .where(and(eq(scanRecords.ticketId, ticketId), eq(scanRecords.qcStatus, "qc_hold")))
         .execute();
 
-      for (const scan of scans) {
-        await tx.update(scanRecords).set({ qcStatus: "released" }).where(eq(scanRecords.id, scan.id));
+      if (scans.length > 0) {
+        // 1. 批量更新所有扫描记录状态为 released
+        const scanIds = scans.map((s) => s.id);
+        await tx
+          .update(scanRecords)
+          .set({ qcStatus: "released" })
+          .where(inArray(scanRecords.id, scanIds));
 
-        // 解锁库存
-        const [inv] = await tx
-          .select()
-          .from(inventoryItems)
-          .where(and(eq(inventoryItems.skuCode, scan.skuCode), eq(inventoryItems.batchNo, scan.batchNo)))
-          .limit(1);
+        // 2. 批量查询所有涉及的库存项
+        const skuBatchPairs = scans.map((s) => `${s.skuCode}|${s.batchNo}`);
+        const uniquePairs = [...new Set(skuBatchPairs)];
+        const inventoryRows: Array<{ inv: typeof inventoryItems.$inferSelect; unlockQty: number }> = [];
 
-        if (inv) {
+        for (const pair of uniquePairs) {
+          const [skuCode, batchNo] = pair.split("|");
+          const matchingScans = scans.filter((s) => s.skuCode === skuCode && s.batchNo === batchNo);
+          const totalUnlockQty = matchingScans.reduce((sum, s) => sum + Number(s.actualQuantity), 0);
+          const [inv] = await tx
+            .select()
+            .from(inventoryItems)
+            .where(and(eq(inventoryItems.skuCode, skuCode), eq(inventoryItems.batchNo, batchNo)))
+            .limit(1);
+          if (inv) {
+            inventoryRows.push({ inv, unlockQty: totalUnlockQty });
+          }
+        }
+
+        // 3. 批量更新库存 + 收集流水数据
+        const movementValues: Array<typeof inventoryMovements.$inferInsert> = [];
+        for (const { inv, unlockQty } of inventoryRows) {
           const beforeAvail = Number(inv.availableQuantity);
           const beforeLocked = Number(inv.lockedQuantity);
-          const unlockQty = Number(scan.actualQuantity);
           const afterLocked = Math.max(0, beforeLocked - unlockQty);
           await tx
             .update(inventoryItems)
             .set({ lockedQuantity: String(afterLocked), status: "normal", updatedAt: new Date() })
             .where(eq(inventoryItems.id, inv.id));
 
-          await tx.insert(inventoryMovements).values({
+          movementValues.push({
             ticketId,
             approvalRecordId,
-            skuCode: scan.skuCode,
-            batchNo: scan.batchNo,
+            skuCode: inv.skuCode,
+            batchNo: inv.batchNo,
             movementType: "unlock" as MovementType,
             quantity: String(unlockQty),
             beforeSnapshot: { available: beforeAvail, locked: beforeLocked },
             afterSnapshot: { available: beforeAvail, locked: afterLocked },
           });
+        }
+
+        // 4. 批量插入库存流水
+        if (movementValues.length > 0) {
+          await tx.insert(inventoryMovements).values(movementValues);
         }
       }
 

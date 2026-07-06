@@ -10,7 +10,7 @@ import {
   auditLogs,
   users,
 } from "@/lib/db-schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { getCurrentUser, apiOk, apiError } from "@/lib/auth";
 
 /** GET /api/tickets/[id] — 工单详情（§11.5 子集） */
@@ -64,14 +64,13 @@ export async function GET(
   // 赔付记录
   const compensations = await db.select().from(compensationRecords).where(eq(compensationRecords.ticketId, id)).orderBy(desc(compensationRecords.createdAt));
 
-  // 审计日志（仅本工单）
-  const audits = await db
+  // 审计日志（仅本工单，SQL 层过滤 targetId 避免全表扫描后内存过滤）
+  const ticketAudits = await db
     .select()
     .from(auditLogs)
-    .where(eq(auditLogs.targetType, "ticket"))
+    .where(and(eq(auditLogs.targetType, "ticket"), eq(auditLogs.targetId, id)))
     .orderBy(desc(auditLogs.createdAt))
     .limit(50);
-  const ticketAudits = audits.filter((a) => a.targetId === id);
 
   return apiOk({
     ticket: { ...ticket, reporterName },

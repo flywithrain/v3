@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { exceptionTickets, integrationLogs } from "@/lib/db-schema";
+import { exceptionTickets, integrationLogs, scanRecords } from "@/lib/db-schema";
 import { eq, and, gte, desc, count, sql as drizzleSql } from "drizzle-orm";
 import { getCurrentUser, apiOk, apiError } from "@/lib/auth";
 
@@ -24,8 +24,9 @@ export async function GET(req: NextRequest) {
     myApproveCount = Number(c1?.c ?? 0);
   }
 
-  // 品控暂扣数量（本轮无品控工单，恒为 0；占位展示）
-  const qcHoldCount = 0;
+  // 品控暂扣数量（查询 scan_records 中 qc_hold 状态的记录数）
+  const [c4] = await db.select({ c: count() }).from(scanRecords).where(eq(scanRecords.qcStatus, "qc_hold")).execute();
+  const qcHoldCount = Number(c4?.c ?? 0);
 
   // 今日新增异常
   const todayStart = new Date();

@@ -2,13 +2,11 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db-schema";
 import { eq } from "drizzle-orm";
-import { getCurrentUser, apiOk, apiError } from "@/lib/auth";
+import { apiOk } from "@/lib/auth";
 
-/** GET /api/users — 列出全部用户供角色切换页使用（需登录） */
-export async function GET(req: NextRequest) {
-  const me = await getCurrentUser(req);
-  if (!me) return apiError({ code: "UNAUTHORIZED", message: "未登录", status: 401 });
-
+/** GET /api/users — 列出全部用户供角色切换页使用（模拟登录场景不鉴权） */
+export async function GET(_req: NextRequest) {
+  // 模拟登录系统的用户列表无需鉴权——用户还没登录时需要看到可选角色列表
   const rows = await db
     .select({
       id: users.id,
