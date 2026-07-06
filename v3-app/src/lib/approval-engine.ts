@@ -5,7 +5,7 @@ import type { Severity, SimpleUser, TicketStatus } from "@/types";
 
 /**
  * 审批规则路由：根据金额、严重度、类别，按规则优先级确定目标审批层级与超时时长。
- * §6.1 默认阈值：金额 > 1000 或 high → 二级；其余物流 → 一级；品控默认二级。
+ * §6.1 默认阈值：金额 > 100 或 high → 二级；其余物流 → 一级；品控默认二级。
  */
 
 export interface ApprovalRouteResult {

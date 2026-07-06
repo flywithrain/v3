@@ -98,7 +98,9 @@ export default function ApprovalRulesPage() {
       const r = await apiFetch<ApprovalRule[]>("/api/rules/approval");
       setRules(r);
     } catch (e) {
-      toast.showToast((e as Error).message, "error");
+      if ((e as { status?: number }).status !== 401) {
+        toast.showToast((e as Error).message, "error");
+      }
     } finally {
       setLoading2(false);
     }

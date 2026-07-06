@@ -135,7 +135,7 @@ async function seed() {
     const ticketId = crypto.randomUUID();
     const ticketNo = `TKT-${String(i + 1).padStart(5, "0")}`;
     const now = new Date(Date.now() - randomInt(1, 60) * 3600000);
-    const level = severity === "high" || amount > 1000 ? 2 : 1;
+    const level = severity === "high" || amount > 100 ? 2 : 1;
 
     ticketsData.push({
       id: ticketId,

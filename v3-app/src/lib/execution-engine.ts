@@ -13,7 +13,7 @@ import { actionNeedsOutbound, actionNeedsReturnIn, actionNeedsPayCustomer, qcAct
  * 使用 drizzle-orm/neon-serverless 的 db.transaction()，回调内提供事务作用域 tx。
  */
 
-const AMOUNT_THRESHOLD = 1000; // §6.1
+const AMOUNT_THRESHOLD = 100; // §6.1
 
 export function exceedsThreshold(amount: string | number | null): boolean {
   const n = Number(amount ?? 0);

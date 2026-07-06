@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ScanLine, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { ScanLine, CheckCircle, AlertTriangle, Loader2, Zap, Package, Hash, Ruler, AlertOctagon } from "lucide-react";
 import { apiFetch, useSession, ApiError } from "@/components/shared/auth-context";
 import { useToast } from "@/components/shared/toast";
 
@@ -25,25 +25,103 @@ interface ScanResult {
   v2RequestId?: string;
 }
 
+interface ScanForm {
+  shipmentId: string;
+  skuCode: string;
+  actualQuantity: string;
+  skuSpec: string;
+  batchNo: string;
+  deviceId: string;
+  /** 预估赔付金额（元），默认 0 */
+  estimatedAmount: string;
+  /** 异常观察：损伤等级（0=无损伤, 1-5） */
+  damageLevel: number;
+  /** 异常观察：损伤部位 */
+  damageLocation: string;
+  /** 异常观察：自由描述 */
+  description: string;
+}
+
+const DAMAGE_LEVELS = [
+  { value: 0, label: "无损伤", desc: "（正常，外观完好）" },
+  { value: 1, label: "1级 — 轻微瑕疵", desc: "划痕、褶皱、标签翘角，不影响使用" },
+  { value: 2, label: "2级 — 外包装破损", desc: "纸箱压痕、胶带开裂，内件完好" },
+  { value: 3, label: "3级 — 内包装破损", desc: "气泡膜破裂、内盒变形，产品可能受影响" },
+  { value: 4, label: "4级 — 产品损伤", desc: "产品划痕、凹陷、漏液，影响销售" },
+  { value: 5, label: "5级 — 完全报废", desc: "碎裂、严重漏液、无法使用" },
+];
+
+const DAMAGE_LOCATIONS = [
+  { value: "", label: "不涉及" },
+  { value: "外包装", label: "外包装" },
+  { value: "内包装", label: "内包装" },
+  { value: "产品本体", label: "产品本体" },
+];
+
+type PresetKey = "normal" | "quantity" | "damage" | "spec" | "batch";
+
+const PRESETS: { key: PresetKey; label: string; icon: React.ReactNode; hint: string }[] = [
+  { key: "normal", label: "正常", icon: <CheckCircle className="h-4 w-4" />, hint: "外观完好、数量正确" },
+  { key: "damage", label: "外观破损", icon: <AlertOctagon className="h-4 w-4" />, hint: "外包装/内件/产品损伤" },
+  { key: "quantity", label: "数量差异", icon: <Hash className="h-4 w-4" />, hint: "实扫数量≠运单数量" },
+  { key: "spec", label: "规格不符", icon: <Ruler className="h-4 w-4" />, hint: "实际规格≠运单规格" },
+  { key: "batch", label: "批次风险", icon: <Package className="h-4 w-4" />, hint: "召回/过期/禁售批次" },
+];
+
 export default function ScanPage() {
   const { user } = useSession();
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [activePreset, setActivePreset] = useState<PresetKey | null>(null);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ScanForm>({
     shipmentId: "",
     skuCode: "",
     actualQuantity: "",
     skuSpec: "",
     batchNo: "",
     deviceId: "",
+    estimatedAmount: "",
+    damageLevel: 0,
+    damageLocation: "",
     description: "",
   });
 
   const canScan = user?.roleCodes.some((r) =>
     ["warehouse_operator", "qc_supervisor", "admin"].includes(r)
   );
+
+  function applyPreset(key: PresetKey) {
+    if (activePreset === key) {
+      // 再次点击取消
+      setActivePreset(null);
+      setForm((f) => ({ ...f, damageLevel: 0, damageLocation: "", description: "" }));
+      return;
+    }
+    setActivePreset(key);
+    switch (key) {
+      case "normal":
+        setForm((f) => ({ ...f, damageLevel: 0, damageLocation: "", description: "外观正常" }));
+        break;
+      case "damage":
+        setForm((f) => ({ ...f, damageLevel: f.damageLevel || 2, damageLocation: f.damageLocation || "外包装" }));
+        break;
+      case "quantity":
+        setForm((f) => ({ ...f, damageLevel: 0, damageLocation: "", description: "" }));
+        break;
+      case "spec":
+        setForm((f) => ({ ...f, damageLevel: 0, damageLocation: "", description: "" }));
+        break;
+      case "batch":
+        setForm((f) => ({ ...f, damageLevel: 0, damageLocation: "", description: "" }));
+        break;
+    }
+  }
+
+  function updateField<K extends keyof ScanForm>(key: K, value: ScanForm[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,6 +142,9 @@ export default function ScanPage() {
           batchNo: form.batchNo.trim(),
           deviceId: form.deviceId.trim() || undefined,
           description: form.description.trim() || undefined,
+          damageLevel: form.damageLevel || undefined,
+          damageLocation: form.damageLocation || undefined,
+          estimatedAmount: Number(form.estimatedAmount) || 0,
         }),
       });
       setResult(r);
@@ -105,12 +186,38 @@ export default function ScanPage() {
       </p>
 
       <form onSubmit={handleSubmit} className="card space-y-4">
+        {/* 快速预设按钮栏 */}
+        <div>
+          <div className="mb-2 flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)]">
+            <Zap className="h-3 w-3" /> 快速预设（可选）
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {PRESETS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => applyPreset(p.key)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activePreset === p.key
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                    : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-primary)]/40 hover:text-[var(--color-text-main)]"
+                }`}
+                title={p.hint}
+              >
+                {p.icon}
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 运单 + SKU 基础信息 */}
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="text-sm font-medium">运单 ID / 外部编码 *</span>
             <input
               value={form.shipmentId}
-              onChange={(e) => setForm({ ...form, shipmentId: e.target.value })}
+              onChange={(e) => updateField("shipmentId", e.target.value)}
               placeholder="输入 V2 运单 ID 或 externalCode"
               className="input-field mt-1"
             />
@@ -119,62 +226,131 @@ export default function ScanPage() {
             <span className="text-sm font-medium">SKU 编码 *</span>
             <input
               value={form.skuCode}
-              onChange={(e) => setForm({ ...form, skuCode: e.target.value })}
+              onChange={(e) => updateField("skuCode", e.target.value)}
               placeholder="如 SKU-001"
               className="input-field mt-1"
             />
           </label>
         </div>
+
+        {/* 数量 + 规格 + 批次 */}
         <div className="grid grid-cols-3 gap-3">
           <label className="block">
-            <span className="text-sm font-medium">实扫数量</span>
+            <span className={`text-sm font-medium ${activePreset === "quantity" ? "text-[var(--color-primary)]" : ""}`}>
+              实扫数量 {activePreset === "quantity" && "⚠"}
+            </span>
             <input
               type="number"
               value={form.actualQuantity}
-              onChange={(e) => setForm({ ...form, actualQuantity: e.target.value })}
+              onChange={(e) => updateField("actualQuantity", e.target.value)}
               placeholder="如 10"
-              className="input-field mt-1"
+              className={`input-field mt-1 ${activePreset === "quantity" ? "ring-2 ring-[var(--color-primary)]/30" : ""}`}
             />
           </label>
           <label className="block">
-            <span className="text-sm font-medium">实扫规格</span>
+            <span className={`text-sm font-medium ${activePreset === "spec" ? "text-[var(--color-primary)]" : ""}`}>
+              实扫规格 {activePreset === "spec" && "⚠"}
+            </span>
             <input
               value={form.skuSpec}
-              onChange={(e) => setForm({ ...form, skuSpec: e.target.value })}
+              onChange={(e) => updateField("skuSpec", e.target.value)}
               placeholder="如 规格-A"
-              className="input-field mt-1"
+              className={`input-field mt-1 ${activePreset === "spec" ? "ring-2 ring-[var(--color-primary)]/30" : ""}`}
             />
           </label>
           <label className="block">
-            <span className="text-sm font-medium">批次号 *</span>
+            <span className={`text-sm font-medium ${activePreset === "batch" ? "text-[var(--color-primary)]" : ""}`}>
+              批次号 * {activePreset === "batch" && "⚠"}
+            </span>
             <input
               value={form.batchNo}
-              onChange={(e) => setForm({ ...form, batchNo: e.target.value })}
+              onChange={(e) => updateField("batchNo", e.target.value)}
               placeholder="如 BATCH-001"
-              className="input-field mt-1"
+              className={`input-field mt-1 ${activePreset === "batch" ? "ring-2 ring-[var(--color-primary)]/30" : ""}`}
             />
           </label>
         </div>
+
+        {/* 设备 ID + 预估金额 */}
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="text-sm font-medium">设备 ID</span>
             <input
               value={form.deviceId}
-              onChange={(e) => setForm({ ...form, deviceId: e.target.value })}
+              onChange={(e) => updateField("deviceId", e.target.value)}
               placeholder="如 PDA-01"
               className="input-field mt-1"
             />
           </label>
           <label className="block">
-            <span className="text-sm font-medium">异常描述</span>
+            <span className="text-sm font-medium">预估赔付金额（元）</span>
             <input
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="如 外包装破损二级"
+              type="number"
+              value={form.estimatedAmount}
+              onChange={(e) => updateField("estimatedAmount", e.target.value)}
+              placeholder="如 50.00"
               className="input-field mt-1"
+              min="0"
+              step="0.01"
             />
           </label>
         </div>
+
+        {/* 异常观察区（仅异常时填写） */}
+        <div className="rounded-lg border border-dashed border-[var(--color-border)] p-3">
+          <p className="mb-2 text-xs font-medium text-[var(--color-text-muted)]">
+            异常观察{activePreset && activePreset !== "normal" ? " — 已选「" + PRESETS.find((p) => p.key === activePreset)!.label + "」" : ""}
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {/* 损伤等级选择器 */}
+            <label className="flex flex-col gap-1">
+              <span className={`text-xs ${activePreset === "damage" ? "text-[var(--color-primary)] font-medium" : "text-[var(--color-text-muted)]"}`}>
+                损伤等级 {activePreset === "damage" && "⚠"}
+              </span>
+              <select
+                value={form.damageLevel}
+                onChange={(e) => updateField("damageLevel", Number(e.target.value))}
+                className={`input-field text-sm ${activePreset === "damage" ? "ring-2 ring-[var(--color-primary)]/30" : ""}`}
+              >
+                {DAMAGE_LEVELS.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label} {l.desc}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* 损伤部位选择器 */}
+            <label className="flex flex-col gap-1">
+              <span className={`text-xs ${activePreset === "damage" ? "text-[var(--color-primary)] font-medium" : "text-[var(--color-text-muted)]"}`}>
+                损伤部位
+              </span>
+              <select
+                value={form.damageLocation}
+                onChange={(e) => updateField("damageLocation", e.target.value)}
+                className={`input-field text-sm ${form.damageLevel > 0 ? "ring-2 ring-[var(--color-primary)]/20" : ""}`}
+              >
+                {DAMAGE_LOCATIONS.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {/* 补充描述 */}
+          <label className="mt-3 block">
+            <span className="text-xs text-[var(--color-text-muted)]">补充描述</span>
+            <input
+              value={form.description}
+              onChange={(e) => updateField("description", e.target.value)}
+              placeholder="如 外包装边角有明显压痕、箱体潮湿"
+              className="input-field mt-1 text-sm"
+            />
+          </label>
+        </div>
+
         <button type="submit" disabled={loading} className="btn-primary flex items-center gap-2">
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {loading ? "扫描校验中…" : "扫描校验"}

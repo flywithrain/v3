@@ -46,7 +46,7 @@ async function seed() {
     {
       name: "物流低金额走一级",
       category: "logistics",
-      conditionConfig: { amountLte: 1000, severity: "low,medium" },
+      conditionConfig: { amountLte: 100, severity: "low,medium" },
       targetLevel: 1,
       timeoutHours: 8,
       priority: 10,
@@ -54,7 +54,7 @@ async function seed() {
     {
       name: "物流高金额进二级",
       category: "logistics",
-      conditionConfig: { amountGt: 1000 },
+      conditionConfig: { amountGt: 100 },
       targetLevel: 2,
       priority: 8,
     },
@@ -84,34 +84,27 @@ async function seed() {
   const insertedRules = await db.insert(approvalRules).values(ruleRows).returning({ id: approvalRules.id, name: approvalRules.name });
   console.log(`  审批规则 ${insertedRules.length} 条`);
 
-  // ====== 5 条品控规则（§6.5 默认阈值） ======
+  // ====== §6.5 品控规则（7 条，按 priority 升序，首个命中即触发） ======
   const qcRuleRows = [
+    // ---- priority 1~9：最高优先级，直接阻断 ----
     {
-      name: "数量差异≥5%",
+      name: "批次风险召回/禁售/过期",
+      subtype: "batch_risk",
+      conditionType: "batch_risk",
+      conditionConfig: {},
+      severity: "high",
+      defaultApprovalLevel: 2,
+      priority: 2,
+    },
+    // ---- priority 10~19：高/中严重度 ----
+    {
+      name: "数量差异≥5% 或数量不一致",
       subtype: "quantity_mismatch",
       conditionType: "quantity_diff",
       conditionConfig: { diffThresholdPct: 5 },
       severity: "medium",
       defaultApprovalLevel: 2,
       priority: 10,
-    },
-    {
-      name: "外观破损≥2级",
-      subtype: "damage",
-      conditionType: "damage_level",
-      conditionConfig: { damageLevelMin: 2, damageLevelHigh: 4 },
-      severity: "medium",
-      defaultApprovalLevel: 2,
-      priority: 20,
-    },
-    {
-      name: "规格不符",
-      subtype: "spec_mismatch",
-      conditionType: "spec_mismatch",
-      conditionConfig: {},
-      severity: "high",
-      defaultApprovalLevel: 2,
-      priority: 15,
     },
     {
       name: "标签SKU不一致",
@@ -123,13 +116,41 @@ async function seed() {
       priority: 12,
     },
     {
-      name: "批次风险召回",
-      subtype: "batch_risk",
-      conditionType: "batch_risk",
+      name: "规格不符",
+      subtype: "spec_mismatch",
+      conditionType: "spec_mismatch",
       conditionConfig: {},
       severity: "high",
       defaultApprovalLevel: 2,
-      priority: 5,
+      priority: 15,
+    },
+    {
+      name: "外观破损≥4级",
+      subtype: "damage",
+      conditionType: "damage_level",
+      conditionConfig: { damageLevelMin: 4, damageLevelHigh: 4 },
+      severity: "high",
+      defaultApprovalLevel: 2,
+      priority: 18,
+    },
+    {
+      name: "外观破损≥2级",
+      subtype: "damage",
+      conditionType: "damage_level",
+      conditionConfig: { damageLevelMin: 2, damageLevelHigh: 4 },
+      severity: "medium",
+      defaultApprovalLevel: 2,
+      priority: 20,
+    },
+    // ---- priority 20+：低严重度 ----
+    {
+      name: "外观破损1级（低风险）",
+      subtype: "damage",
+      conditionType: "damage_level",
+      conditionConfig: { damageLevelMin: 1, damageLevelHigh: 2 },
+      severity: "low",
+      defaultApprovalLevel: 1,
+      priority: 25,
     },
   ];
   const insertedQcRules = await db.insert(qcRules).values(qcRuleRows).returning({ id: qcRules.id, name: qcRules.name });

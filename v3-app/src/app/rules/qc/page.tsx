@@ -60,7 +60,9 @@ export default function QcRulesPage() {
       const r = await apiFetch<QcRule[]>("/api/rules/qc");
       setRules(r);
     } catch (e) {
-      toast.showToast((e as Error).message, "error");
+      if ((e as { status?: number }).status !== 401) {
+        toast.showToast((e as Error).message, "error");
+      }
     } finally {
       setLoadingRules(false);
     }

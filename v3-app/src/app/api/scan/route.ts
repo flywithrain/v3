@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
     batchNo?: string;
     deviceId?: string;
     description?: string;
+    damageLevel?: number;
+    damageLocation?: string;
+    estimatedAmount?: number;
   } = {};
   try {
     body = await req.json();
@@ -55,7 +58,7 @@ export async function POST(req: NextRequest) {
     body = {};
   }
 
-  const { shipmentId, externalCode, skuCode, actualQuantity, skuSpec, batchNo, deviceId, description } = body;
+  const { shipmentId, externalCode, skuCode, actualQuantity, skuSpec, batchNo, deviceId, description, damageLevel, damageLocation, estimatedAmount } = body;
   if ((!shipmentId?.trim() && !externalCode?.trim()) || !skuCode?.trim() || !batchNo?.trim()) {
     return apiError({ code: "BAD_REQUEST", message: "需提供 shipmentId/externalCode、skuCode、batchNo", status: 400 });
   }
@@ -174,6 +177,8 @@ export async function POST(req: NextRequest) {
     actualSkuCode: skuCode!.trim(),
     batchNo: batchNo!.trim(),
     description: description ?? "",
+    damageLevel: damageLevel ?? undefined,
+    damageLocation: damageLocation?.trim() || undefined,
   });
 
   const scanNo = `SCAN-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -293,7 +298,7 @@ export async function POST(req: NextRequest) {
     category: "quality_control",
     subtype: qcResult.subtype ?? "quantity_mismatch",
     severity: qcResult.severity as Severity,
-    estimatedAmount: 0,
+    estimatedAmount: Number(estimatedAmount ?? 0),
   });
 
   try {
@@ -308,7 +313,7 @@ export async function POST(req: NextRequest) {
         category: "quality_control",
         subtype: qcResult.subtype ?? "quantity_mismatch",
         severity: qcResult.severity as Severity,
-        estimatedAmount: "0",
+        estimatedAmount: String(estimatedAmount ?? 0),
         description: description?.trim() || qcResult.reason,
         status: initialStatusForLevel(route.targetLevel),
         currentLevel: route.targetLevel,
